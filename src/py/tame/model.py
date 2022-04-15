@@ -9,20 +9,49 @@ T = TypeVar("T")
 # easily comparable with others.
 class Structure:
     def __init__(self, size: int):
-        assert size % 8 == 0, f"Exepected size multiple of 8, got: {size}"
+        assert size % 8 == 0, f"Expected size multiple of 8, got: {size}"
         self.size: int = size
 
     def __str__(self):
         return f"#{self.size}"
 
 
+class Sequence(Structure):
+    def __init__(self, size: int, length: int):
+        super().__init__(size * length)
+        assert size % 8 == 0, f"Expected size multiple of 8, got: {size}"
+        assert length > 0, f"Expected length to be > 0, got: {length}"
+        self.itemSize = size
+        self.length = length
+
+    def __str__(self):
+        return f"#[{self.length}*{self.itemSize}]={self.size}"
+
+
+# TODO: Have a List structure that accepts a given sentinel. For instance
+# null-terminated string.
+
+
 class Type:
     Registry: DAG[int, "Type"] = DAG()
 
-    def __init__(self, name: str):
+    def __init__(self, name: str, **parameters: "Type"):
         self.id: int = next(IntegerID)
         self.name: str = name
+        self.parameters = parameters
+        self._isAbstract: Optional[bool] = None
         self.Registry.setNode(self.id, self)
+
+    @property
+    def isAbstract(self) -> bool:
+        if self._isAbstract is not None:
+            return self._isAbstract
+        if self.parameters:
+            for _ in self.parameters.values():
+                self._isAbstract = True
+                return self._isAbstract
+        self._isAbstract = False
+        return self._isAbstract
 
     def isa(self, other: "Type"):
         assert isinstance(other, Type), f"Expected type, got: {other}"
@@ -48,18 +77,36 @@ class Type:
         self.Registry.addInput(self.id, other.id)
         return self
 
+    def __call__(self, *args: "Type", **kwargs: "Type"):
+        """Returns the type that corresponds to the application of the given
+        types to this type."""
+        print("SUBTYPES", args, kwargs)
+        return self
 
-class Value(Generic[T]):
-    def __init__(self, type: Type, structure: Structure, value: T):
+
+class Value:
+    def __init__(self, type: Type, structure: Structure):
         self.type = type
         self.structure = structure
-        self.value = value
+
+    @property
+    def size(self) -> Optional[int]:
+        return self.structure.size
 
     def __add__(self, other: "Value"):
         assert isinstance(
             other, Value
         ), "Can only accept a Value subclass, got: {other}"
         return Operation(Operation.ADD, self, other)
+
+    def __str__(self):
+        return f"({self.__class__.__name__}{self.type}{self.structure})"
+
+
+class Literal(Value, Generic[T]):
+    def __init__(self, type: Type, structure: Structure, value: T):
+        super().__init__(type, structure)
+        self.value = value
 
     def __str__(self):
         return f"({self.__class__.__name__}{self.type}{self.structure} {self.value})"
