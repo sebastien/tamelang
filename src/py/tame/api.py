@@ -15,20 +15,17 @@ Any = Type("Any")
 Number = Type("Number") << Any
 NaturalNumber = Type("NaturalNumber") << Number
 DecimalNumber = Type("DecimalNumber") << Number
-
-
 Array = Type("Array", T=Any)
 
 
-class Int32(Literal[int]):
-    def __init__(self, value: int):
-        super().__init__(type=NaturalNumber, structure=B32, value=value)
+def int32(value: int) -> Literal[int]:
+    return Literal[int](NaturalNumber, structure=B32, value=value)
 
 
 class T:
     @staticmethod
-    def int(value: int) -> Int32:
-        return Int32(value=value)
+    def int(value: int) -> Literal[int]:
+        return int32(value)
 
     @staticmethod
     def array(value: Literal[A], count: int) -> Value:

@@ -1,4 +1,4 @@
-from ..model import Value, Operation, Operator
+from ..model import Value, Application, Operator
 from typing import Iterable, Union
 from io import StringIO
 from enum import Enum
@@ -42,15 +42,23 @@ class Output:
 
 
 class Backend:
+    def on(self, value: Union[Value, Application]) -> TOutput:
+        if isinstance(value, Application):
+            return self.application(value)
+        elif isinstance(value, Value):
+            return self.value(value)
+        else:
+            raise ValueError(f"Expected Value or Application, got: {value}")
+
     def value(self, value: Value) -> TOutput:
         raise NotImplemented
 
-    def operation(self, operation: Operation) -> TOutput:
-        name, lv, rv = operation.name, operation.lvalue, operation.rvalue
-        if name is Operator.ADD:
-            return self.add(lv, rv)
-        elif name is Operator.INDEX:
-            return self.index(lv, rv)
+    def application(self, application: Application) -> TOutput:
+        name = application.name
+        if name is Operator.Add:
+            return self.add(application[0], application[1])
+        elif name is Operator.Index:
+            return self.index(application[0], application[1])
         else:
             raise RuntimeError("Operation '{name}' not implemented in backend: {self}")
 
@@ -60,12 +68,7 @@ class Backend:
     def index(self, value: Value, rvalue: Value) -> TOutput:
         raise NotImplemented
 
-    def on(self, value: Union[Value, Operation]) -> TOutput:
-        return (
-            self.operation(value) if isinstance(value, Operation) else self.value(value)
-        )
-
-    def __call__(self, value: Union[Value, Operation]) -> Output:
+    def __call__(self, value: Union[Value, Application]) -> Output:
         return Output(self.on(value))
 
 

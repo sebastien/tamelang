@@ -38,6 +38,29 @@ class Operability(Flag):
     Identifable = auto()
 
 
+class Operator(Enum):
+    # Unary
+    Not = ":not"
+    # Binary
+    Add = ":add"
+    Sub = ":sub"
+    Mul = ":mul"
+    Div = ":div"
+    Mod = ":mod"
+    Pow = ":pow"
+    Or = ":or"
+    Eq = ":eq"
+    Is = ":is"
+    Gt = ":gt"
+    Lt = ":gt"
+    And = ":and"
+    Index = ":index"
+    Access = ":access"
+    Slice = ":slice"
+    # Ternary
+    Cond = ":cond"
+
+
 # TODO: The structure should create some kind of hash that is then
 # easily comparable with others.
 class Structure:
@@ -93,9 +116,9 @@ class Type:
             k: v or Type(name=k, scope=self) for k, v in parameters.items()
         }
         # We define the type capabilities
-        self.capability: int = 0
+        self.capabilities: int = 0
         for cap in capabilities or ():
-            self.capability = self.capability | cap.value
+            self.capabilities = self.capabilities | cap.value
         # We define if the type is abstract or not
         self.isAbstract: bool = False
         if self.parameters:
@@ -131,7 +154,7 @@ class Type:
     def supports(self, *capability: Operability) -> bool:
         """Tells if the given capabilities are supported by the type"""
         for cap in capability:
-            if self.capability & cap.value == 0:
+            if self.capabilities & cap.value == 0:
                 return False
         return True
 
@@ -202,11 +225,11 @@ class Value:
         assert isinstance(
             other, Value
         ), "Can only accept a Value subclass, got: {other}"
-        return Operation(Operator.Add, self, other)
+        return Application(Operator.Add, self, other)
 
     def __getitem__(self, key: "Value"):
         assert isinstance(key, Value), "Can only accept a Value subclass, got: {other}"
-        return Operation(Operator.Index, self, key)
+        return Application(Operator.Index, self, key)
 
     def __repr__(self):
         return f"({self.__class__.__name__}{self.type}{self.structure})"
@@ -221,30 +244,21 @@ class Literal(Value, Generic[T]):
         return f"({self.__class__.__name__}{self.type}{self.structure} {self.value})"
 
 
-class Operator(Enum):
-    # Unary
-    Not = ":not"
-    # Binary
-    Add = ":add"
-    Sub = ":sub"
-    Mul = ":mul"
-    Div = ":div"
-    Mod = ":mod"
-    Pow = ":pow"
-    Or = ":or"
-    Eq = ":eq"
-    Is = ":is"
-    Gt = ":gt"
-    Lt = ":gt"
-    And = ":and"
-    Index = ":index"
-    Access = ":access"
-    Slice = ":slice"
-    # Ternary
-    Cond = ":cond"
-
-
 class Operation:
+    Registry: dict[str, "Operation"] = {}
+
+    @staticmethod
+    def Key(name: Union[Operator, str], lvalue: Type, rvalue: Optional[Type]):
+        return "{name.value if isinstance(name,Operator) else name}.{lvalue.key}{f'.{rvalue.key}' if rvalue else ''}"
+
+    @staticmethod
+    def Ensure(name: Union[Operator, str], lvalue: Type, rvalue: Optional[Type]):
+        key = Operation.Key(name, lvalue, rvalue)
+        if key in Operation.Registry:
+            return Operation.Registry[key]
+        else:
+            return Operation(name, lvalue, rvalue)
+
     def __init__(
         self, name: Union[Operator, str], lvalue: Type, rvalue: Optional[Type]
     ):
@@ -255,9 +269,32 @@ class Operation:
         self.type: Optional[Type] = (
             lvalue if rvalue is None else lvalue.intersect(rvalue)
         )
+        self.key = "{name.value if isinstance(name,Operator) else name}.{lvalue.key}{f'.{rvalue.key}' if rvalue else ''}"
+        assert (
+            self.key not in Operation.Registry
+        ), "Operation already registered, use 'Operation.Ensure()' instead"
+        Operation.Registry[self.key] = self
 
     def __repr__(self):
         return f"({self.name} {self.lvalue} {self.rvalue})"
+
+
+class Application:
+    """Represents the application of values to a symbol/operator. The actual
+    operation represented by the symbol/operator will be resolved by the
+    runtime."""
+
+    def __init__(self, name: Union[Operator, str], *value: Value):
+        self.name = name
+        self.values = value
+        self.arity = len(value)
+
+    def __getitem__(self, index: int):
+        assert index >= 0 and index < self.arity
+        return self.values[index]
+
+    def __repr__(self):
+        return f"({self.name}[{','.join(str(_.type) for _ in self.values)}] {' '.join(str(_) for _ in self.values)})"
 
 
 # EOF
