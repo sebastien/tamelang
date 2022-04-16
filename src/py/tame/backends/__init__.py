@@ -1,4 +1,4 @@
-from ..model import Value, Operation
+from ..model import Value, Operation, Operator
 from typing import Iterable, Union
 from io import StringIO
 from enum import Enum
@@ -47,12 +47,17 @@ class Backend:
 
     def operation(self, operation: Operation) -> TOutput:
         name, lv, rv = operation.name, operation.lvalue, operation.rvalue
-        if name == ":add":
+        if name is Operator.ADD:
             return self.add(lv, rv)
+        elif name is Operator.INDEX:
+            return self.index(lv, rv)
         else:
             raise RuntimeError("Operation '{name}' not implemented in backend: {self}")
 
-    def add(self, str, value: Value, rvalue: Value) -> TOutput:
+    def add(self, value: Value, rvalue: Value) -> TOutput:
+        raise NotImplemented
+
+    def index(self, value: Value, rvalue: Value) -> TOutput:
         raise NotImplemented
 
     def on(self, value: Union[Value, Operation]) -> TOutput:

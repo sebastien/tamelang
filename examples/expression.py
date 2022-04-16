@@ -14,3 +14,10 @@ print(C(a + b))
 array_a = T.array(T.int(0), 10)
 print(array_a)
 print(array_a.type.qname)
+
+print(array_a[T.int(5)])
+
+# --
+# The question is basically: can the runtime perform the operations on the
+# given arguments.
+# EOF

@@ -1,8 +1,39 @@
 from .utils.dag import DAG
 from .utils.id import IntegerID
-from typing import TypeVar, Generic, Optional, Iterator, Union
+from typing import TypeVar, Generic, Optional, Iterator, Iterable, Union
+from enum import Enum, Flag, auto
 
 T = TypeVar("T")
+
+
+class Capability(Flag):
+    """Defines the capabilities that are given to a reference."""
+
+    # The value can be referenced
+    Dereference = auto()
+    # Transfers the reference to something else
+    Transfer = auto()
+    # The value can be accessed
+    Access = auto()
+    # The value can be updated
+    Update = auto()
+    # The value can be removed
+    Remove = auto()
+
+
+class Operability(Flag):
+    """Defines the oeprations that can be performed on a type"""
+
+    # The value can be evaluated
+    Evaluate = auto()
+    # The value can be decomposed
+    Decompose = auto()
+    # The value can be invoked
+    Invoke = auto()
+    # The value can be indexed
+    Index = auto()
+    # The value can be sliced
+    Slice = auto()
 
 
 # TODO: The structure should create some kind of hash that is then
@@ -36,14 +67,29 @@ class Type:
     Registry: DAG[int, "Type"] = DAG()
     Symbols: dict[str, "Type"] = {}
 
-    def __init__(self, name: str, **parameters: Optional["Type"]):
+    def __init__(
+        self,
+        name: str,
+        capabilities: Optional[Iterable[Operability]] = None,
+        **parameters: Optional["Type"],
+    ):
         self.id: int = next(IntegerID)
         self.name: str = name
         self.parameters: Optional[Type] = parameters
         self._isAbstract: Optional[bool] = None
+        self.capability: int = 0
+        for cap in capabilities or ():
+            self.capability = self.capability | cap.value
         self.Registry.setNode(self.id, self)
         if (qname := self.qname) not in self.Symbols:
             self.Symbols[qname] = self
+
+    def supports(self, *capability: Operability) -> bool:
+        """Tells if the given capabilities are supported by the type"""
+        for cap in capability:
+            if self.capability & cap == 0:
+                return False
+        return True
 
     @property
     def isAbstract(self) -> bool:
@@ -135,7 +181,11 @@ class Value:
         assert isinstance(
             other, Value
         ), "Can only accept a Value subclass, got: {other}"
-        return Operation(Operation.ADD, self, other)
+        return Operation(Operator.ADD, self, other)
+
+    def __getitem__(self, key: "Value"):
+        assert isinstance(key, Value), "Can only accept a Value subclass, got: {other}"
+        return Operation(Operator.INDEX, self, key)
 
     def __str__(self):
         return f"({self.__class__.__name__}{self.type}{self.structure})"
@@ -150,10 +200,15 @@ class Literal(Value, Generic[T]):
         return f"({self.__class__.__name__}{self.type}{self.structure} {self.value})"
 
 
-class Operation:
+class Operator(Enum):
     ADD = ":add"
+    INDEX = ":index"
 
-    def __init__(self, name: str, lvalue: Value, rvalue: Optional[Value]):
+
+class Operation:
+    def __init__(
+        self, name: Union[Operator, str], lvalue: Value, rvalue: Optional[Value]
+    ):
         self.name = name
         self.lvalue = lvalue
         self.rvalue = rvalue
