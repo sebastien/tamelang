@@ -13,3 +13,4 @@ print(C(a + b))
 # ### Arrays
 array_a = T.array(T.int(0), 10)
 print(array_a)
+print(array_a.type.qname)

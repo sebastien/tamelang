@@ -1,6 +1,6 @@
 from .utils.dag import DAG
 from .utils.id import IntegerID
-from typing import TypeVar, Generic, Optional, Iterator
+from typing import TypeVar, Generic, Optional, Iterator, Union
 
 T = TypeVar("T")
 
@@ -34,13 +34,16 @@ class Sequence(Structure):
 
 class Type:
     Registry: DAG[int, "Type"] = DAG()
+    Symbols: dict[str, "Type"] = {}
 
-    def __init__(self, name: str, **parameters: "Type"):
+    def __init__(self, name: str, **parameters: Optional["Type"]):
         self.id: int = next(IntegerID)
         self.name: str = name
-        self.parameters = parameters
+        self.parameters: Optional[Type] = parameters
         self._isAbstract: Optional[bool] = None
         self.Registry.setNode(self.id, self)
+        if (qname := self.qname) not in self.Symbols:
+            self.Symbols[qname] = self
 
     @property
     def isAbstract(self) -> bool:
@@ -52,6 +55,26 @@ class Type:
                 return self._isAbstract
         self._isAbstract = False
         return self._isAbstract
+
+    @property
+    def qname(self) -> str:
+        return self.derivedName()
+
+    def derivedName(
+        self, parameters: Optional[Union[list, dict[str, str]]] = None
+    ) -> str:
+        p = []
+        if not parameters:
+            p = [v for v in self.parameters.values()]
+        elif isinstance(parameters, dict):
+            p = [parameters.get(k, v) for k, v in self.parameters.items()]
+        else:
+            p = parameters
+        return (
+            self.name
+            if not p
+            else f"{self.name}[{','.join(_.qname if _ else '_' for _ in p)}]"
+        )
 
     def isa(self, other: "Type"):
         assert isinstance(other, Type), f"Expected type, got: {other}"
@@ -80,7 +103,22 @@ class Type:
     def __call__(self, *args: "Type", **kwargs: "Type"):
         """Returns the type that corresponds to the application of the given
         types to this type."""
-        print("SUBTYPES", args, kwargs)
+        parameters = {k: v for k, v in self.parameters.items()}
+        for i, k in enumerate(self.parameters.keys()):
+            if i < len(args):
+                parameters[k] = args[i]
+            elif k in kwargs:
+                parameters[k] = kwargs[k]
+        dname = self.derivedName(parameters)
+        # We return the type if it's already there. This ensures
+        # unicity of type instances.
+        if dname in self.Symbols:
+            return self.Symbols[dname]
+        else:
+            derived = Type(self.name, **parameters)
+            # The derived type is linked to this type
+            return derived << self
+
         return self
 
 
