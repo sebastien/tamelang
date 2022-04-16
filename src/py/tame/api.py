@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from typing import TypeVar
-from .model import Type, Structure, Value, Literal, Sequence
+from .model import Type, Structure, Value, Literal, Sequence, Operation, Operator
 
 A = TypeVar("A")
 

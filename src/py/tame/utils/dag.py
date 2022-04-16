@@ -159,6 +159,20 @@ class DAG(Generic[K, T]):
             self.addOutput(node, _)
         return self
 
+    def ancestors(self, node: K, visited: Optional[list[K]] = None) -> Iterable[K]:
+        """Iterates through the precursors/ancestors of the given node"""
+        parents = self.inputs.get(node, ())
+        v = visited or []
+        # NOTE: If there is a cycle, we're fucked!
+        for _ in parents:
+            yield _
+        v += parents
+        for _ in parents:
+            for n in self.ancestors(_, v):
+                if n not in v:
+                    v.append(n)
+                    yield n
+
     def descendants(self, node: K) -> Iterable[K]:
         """Iterates through the descendants of the given node"""
         children = self.outputs.get(node, ())

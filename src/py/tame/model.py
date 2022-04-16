@@ -34,6 +34,8 @@ class Operability(Flag):
     Index = auto()
     # The value can be sliced
     Slice = auto()
+    # A unique, stable identifier can be associtated with the value
+    Identifable = auto()
 
 
 # TODO: The structure should create some kind of hash that is then
@@ -43,7 +45,7 @@ class Structure:
         assert size % 8 == 0, f"Expected size multiple of 8, got: {size}"
         self.size: int = size
 
-    def __str__(self):
+    def __repr__(self):
         return f"#{self.size}"
 
 
@@ -55,7 +57,7 @@ class Sequence(Structure):
         self.itemSize = size
         self.length = length
 
-    def __str__(self):
+    def __repr__(self):
         return f"#[{self.length}*{self.itemSize}]={self.size}"
 
 
@@ -64,51 +66,55 @@ class Sequence(Structure):
 
 
 class Type:
+    """A generic class to represent a variety of types, from basic name
+    types to type parameters."""
+
     Registry: DAG[int, "Type"] = DAG()
     Symbols: dict[str, "Type"] = {}
 
     def __init__(
         self,
+        # Types need to be named
         name: str,
+        # The scope is like the parent type (used for naming/qname)
+        scope: Optional["Type"] = None,
+        # Capabilities are the operations that are allowed on a value
+        # of that type.
         capabilities: Optional[Iterable[Operability]] = None,
-        **parameters: Optional["Type"],
+        # Types can have parameters
+        **parameters: Optional[Union["Type"]],
+        # TODO: Types can have constraints, like structure, bounds, etc.
     ):
         self.id: int = next(IntegerID)
         self.name: str = name
-        self.parameters: Optional[Type] = parameters
-        self._isAbstract: Optional[bool] = None
+        self.scope: Optional[Type] = scope
+        self.qname: str = f"{scope.name}.{name}" if scope else name
+        self.parameters: dict[Union[Type]] = {
+            k: v or Type(name=k, scope=self) for k, v in parameters.items()
+        }
+        # We define the type capabilities
         self.capability: int = 0
         for cap in capabilities or ():
             self.capability = self.capability | cap.value
-        self.Registry.setNode(self.id, self)
-        if (qname := self.qname) not in self.Symbols:
-            self.Symbols[qname] = self
-
-    def supports(self, *capability: Operability) -> bool:
-        """Tells if the given capabilities are supported by the type"""
-        for cap in capability:
-            if self.capability & cap == 0:
-                return False
-        return True
-
-    @property
-    def isAbstract(self) -> bool:
-        if self._isAbstract is not None:
-            return self._isAbstract
+        # We define if the type is abstract or not
+        self.isAbstract: bool = False
         if self.parameters:
             for _ in self.parameters.values():
-                self._isAbstract = True
-                return self._isAbstract
-        self._isAbstract = False
-        return self._isAbstract
+                if _.isAbstract:
+                    self.isAbstract = True
+                    break
+        # We register the type in the registry
+        Type.Symbols[self.key] = self
 
     @property
-    def qname(self) -> str:
-        return self.derivedName()
+    def key(self) -> str:
+        return self.derivedKey()
 
-    def derivedName(
-        self, parameters: Optional[Union[list, dict[str, str]]] = None
+    def derivedKey(
+        self, parameters: Optional[Union[list["Type"], dict[str, "Type"]]] = None
     ) -> str:
+        """Returns the name of the type derived from this type, completed
+        by the given type aprameters"""
         p = []
         if not parameters:
             p = [v for v in self.parameters.values()]
@@ -117,10 +123,17 @@ class Type:
         else:
             p = parameters
         return (
-            self.name
+            self.qname
             if not p
-            else f"{self.name}[{','.join(_.qname if _ else '_' for _ in p)}]"
+            else f"{self.qname}[{','.join(_.key if _ else '_' for _ in p)}]"
         )
+
+    def supports(self, *capability: Operability) -> bool:
+        """Tells if the given capabilities are supported by the type"""
+        for cap in capability:
+            if self.capability & cap.value == 0:
+                return False
+        return True
 
     def isa(self, other: "Type"):
         assert isinstance(other, Type), f"Expected type, got: {other}"
@@ -136,14 +149,17 @@ class Type:
         if other is self:
             return self
         else:
-            raise NotImplementedError
-
-    def __str__(self):
-        return f":{self.name}"
+            # NOTE: This is a bit awkward, and should be probably be
+            # something that is very fast to compute. There is an opportunity
+            # for a numerical representation of all of that.
+            a = {k: i for i, k in enumerate(Type.Registry.ancestors(self.id))}
+            b = {k: i for i, k in enumerate(Type.Registry.ancestors(other.id))}
+            l = sorted([(k, i) for k, i in b.items() if k in a], key=lambda _: _[1])
+            return Type.Registry.get(l[0]) if l else None
 
     def __lshift__(self, other: "Type"):
         assert isinstance(other, Type), f"Expected type, got: {other}"
-        self.Registry.addInput(self.id, other.id)
+        Type.Registry.addInput(self.id, other.id)
         return self
 
     def __call__(self, *args: "Type", **kwargs: "Type"):
@@ -155,17 +171,22 @@ class Type:
                 parameters[k] = args[i]
             elif k in kwargs:
                 parameters[k] = kwargs[k]
-        dname = self.derivedName(parameters)
+        key = self.derivedKey(parameters)
         # We return the type if it's already there. This ensures
         # unicity of type instances.
-        if dname in self.Symbols:
-            return self.Symbols[dname]
+        if key in self.Symbols:
+            return self.Symbols[key]
         else:
-            derived = Type(self.name, **parameters)
+            derived = Type(name=self.name, scope=self.scope, **parameters)
+            derived.capabilities = self.capabilities
             # The derived type is linked to this type
             return derived << self
 
-        return self
+    def __getitem__(self, key: str) -> Optional["Type"]:
+        return self.parameters[key]
+
+    def __repr__(self):
+        return f":{self.key}"
 
 
 class Value:
@@ -181,13 +202,13 @@ class Value:
         assert isinstance(
             other, Value
         ), "Can only accept a Value subclass, got: {other}"
-        return Operation(Operator.ADD, self, other)
+        return Operation(Operator.Add, self, other)
 
     def __getitem__(self, key: "Value"):
         assert isinstance(key, Value), "Can only accept a Value subclass, got: {other}"
-        return Operation(Operator.INDEX, self, key)
+        return Operation(Operator.Index, self, key)
 
-    def __str__(self):
+    def __repr__(self):
         return f"({self.__class__.__name__}{self.type}{self.structure})"
 
 
@@ -196,29 +217,46 @@ class Literal(Value, Generic[T]):
         super().__init__(type, structure)
         self.value = value
 
-    def __str__(self):
+    def __repr__(self):
         return f"({self.__class__.__name__}{self.type}{self.structure} {self.value})"
 
 
 class Operator(Enum):
-    ADD = ":add"
-    INDEX = ":index"
+    # Unary
+    Not = ":not"
+    # Binary
+    Add = ":add"
+    Sub = ":sub"
+    Mul = ":mul"
+    Div = ":div"
+    Mod = ":mod"
+    Pow = ":pow"
+    Or = ":or"
+    Eq = ":eq"
+    Is = ":is"
+    Gt = ":gt"
+    Lt = ":gt"
+    And = ":and"
+    Index = ":index"
+    Access = ":access"
+    Slice = ":slice"
+    # Ternary
+    Cond = ":cond"
 
 
 class Operation:
     def __init__(
-        self, name: Union[Operator, str], lvalue: Value, rvalue: Optional[Value]
+        self, name: Union[Operator, str], lvalue: Type, rvalue: Optional[Type]
     ):
         self.name = name
         self.lvalue = lvalue
         self.rvalue = rvalue
         # FIXME: This should be defined in the operation interface itself
-        self.type = (
-            lvalue.type if rvalue is None else lvalue.type.intersect(rvalue.type)
+        self.type: Optional[Type] = (
+            lvalue if rvalue is None else lvalue.intersect(rvalue)
         )
-        assert self.type
 
-    def __str__(self):
+    def __repr__(self):
         return f"({self.name} {self.lvalue} {self.rvalue})"
 
 
